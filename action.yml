@@ -1,0 +1,30 @@
+# action.yml
+name: 'EKSctl Action'
+description: 'EKSctl Action'
+inputs:
+  awsAccessKeyId:
+    description: 'awsAccessKeyId'
+    required: true
+  awsSecretAccessKey:
+    description: 'awsSecretAccessKey'
+    required: true
+  region:
+    description: 'AWS default region'
+    required: false
+    default: 'us-west-1'
+  cluster:
+    description: 'Name of EKS cluster'
+    required: true
+  clusterConfigFile:
+    description: 'EKS config file'
+    required: true
+outputs: {}
+runs:
+  using: 'docker'
+  image: docker://chanwit/action-eksctl:v1
+  env:
+    AWS_ACCESS_KEY_ID: ${{ inputs.awsAccessKeyId }}
+    AWS_SECRET_ACCESS_KEY: ${{ inputs.awsSecretAccessKey }}
+    AWS_DEFAULT_REGION: ${{ inputs.region }}
+    EKSCTL_CLUSTER_NAME: ${{ inputs.cluster }}
+    EKSCTL_CLUSTER_FILE: ${{ inputs.clusterConfigFile }}
