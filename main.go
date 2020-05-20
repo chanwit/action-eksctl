@@ -146,6 +146,8 @@ func createCluster() error {
 	cmd.Stdin = strings.NewReader(clusterConfig.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	fmt.Printf("Executing: %s %s %s\n", cmd.Env, cmd.Path, strings.Join(cmd.Args, " "))
 	return cmd.Run()
 }
 
@@ -154,6 +156,8 @@ func deleteCluster() error {
 	cmd := exec.Command("eksctl", "delete", "cluster", name)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	fmt.Printf("Executing: %s %s %s\n", cmd.Env, cmd.Path, strings.Join(cmd.Args, " "))
 	return cmd.Run()
 }
 
@@ -162,6 +166,8 @@ func writeKubeConfig() error {
 	cmd := exec.Command("eksctl", "utils", "write-kubeconfig", "--cluster", name)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	fmt.Printf("Executing: %s %s %s\n", cmd.Env, cmd.Path, strings.Join(cmd.Args, " "))
 	return cmd.Run()
 }
 
@@ -176,9 +182,12 @@ func enableGitOpsRepository() error {
 		"--cluster="+clusterName,
 		"--region="+region)
 
-	cmd.Env = []string{"EKSCTL_EXPERIMENTAL=true"}
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	fmt.Printf("Executing: %s %s %s\n", cmd.Env, cmd.Path, strings.Join(cmd.Args, " "))
 	return cmd.Run()
 }
 
@@ -194,7 +203,8 @@ func enableProfile(profile Profile) error {
 		"--region="+region,
 		string(profile))
 
-	cmd.Env = []string{"EKSCTL_EXPERIMENTAL=true"}
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
