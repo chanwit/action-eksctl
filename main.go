@@ -176,6 +176,9 @@ func writeKubeConfig() error {
 }
 
 func enableGitOpsRepository() error {
+	home := os.Getenv("HOME")
+	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
+
 	clusterName := getDesiredClusterName()
 	region := getDesiredRegion()
 	gitopsRepo := "git@github.com:" + os.Getenv("GITHUB_REPOSITORY")
@@ -183,6 +186,7 @@ func enableGitOpsRepository() error {
 	cmd := exec.Command("eksctl", "enable", "repo",
 		"--git-url="+gitopsRepo,
 		"--git-email=flux@noreply.gitops",
+		"--git-private-ssh-key-path="+privateKeyPath,
 		"--cluster="+clusterName,
 		"--region="+region)
 
@@ -196,6 +200,9 @@ func enableGitOpsRepository() error {
 }
 
 func enableProfile(profile Profile) error {
+	home := os.Getenv("HOME")
+	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
+
 	clusterName := getDesiredClusterName()
 	region := getDesiredRegion()
 	gitopsRepo := "git@github.com:" + os.Getenv("GITHUB_REPOSITORY")
@@ -203,6 +210,7 @@ func enableProfile(profile Profile) error {
 	cmd := exec.Command("eksctl", "enable", "profile",
 		"--git-url="+gitopsRepo,
 		"--git-email=flux@noreply.gitops",
+		"--git-private-ssh-key-path="+privateKeyPath,
 		"--cluster="+clusterName,
 		"--region="+region,
 		string(profile))
