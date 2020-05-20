@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"strings"
@@ -221,7 +224,7 @@ func getDeployKeyFromFlux() string {
 	return strings.TrimSpace(key.String())
 }
 
-func addDeployKey(key string) error {
+func addDeployKey(name, key string) error {
 	token := os.Getenv("GH_TOKEN")
 	if token == "" {
 		return errors.New("expected GH_TOKEN")
@@ -244,7 +247,7 @@ func addDeployKey(key string) error {
 
 	_, _, err := client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
 		Key:      github.String(key),
-		Title:    github.String("flux"),
+		Title:    github.String(name),
 		ReadOnly: github.Bool(false),
 	})
 
@@ -295,6 +298,8 @@ func main() {
 	// if cluster is present
 	// we enable gitops
 	if getClusterState() == Present {
+		fmt.Println("Generating Key ...")
+		generateKeyAndAllowDeployKey()
 		fmt.Println("Enabling GitOps repository ...")
 		enableGitOpsRepository()
 
@@ -302,7 +307,7 @@ func main() {
 		key := getDeployKeyFromFlux()
 
 		fmt.Println("Adding deploy key to the repo ...")
-		err := addDeployKey(key)
+		err := addDeployKey("flux", key)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -319,6 +324,57 @@ func main() {
 
 	fmt.Println("Verifying Cluster State ...")
 	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", getClusterState(), getClusterDesiredState())
+}
+
+func generateKeyAndAllowDeployKey() error {
+	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-N", "''", "-f", "~/.ssh/id_rsa")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	key, err := ioutil.ReadFile("~/.ssh/id_rsa.pub")
+	if err != nil {
+		return err
+	}
+
+	str := RandomString(10)
+	return addDeployKey("push-key-"+str, string(key))
+}
+
+// NewSHA1Hash generates a new SHA1 hash based on
+// a random number of characters.
+func NewSHA1Hash(n ...int) string {
+	noRandomCharacters := 32
+
+	if len(n) > 0 {
+		noRandomCharacters = n[0]
+	}
+
+	randString := RandomString(noRandomCharacters)
+
+	hash := sha1.New()
+	hash.Write([]byte(randString))
+	bs := hash.Sum(nil)
+
+	return fmt.Sprintf("%x", bs)
+}
+
+var characterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
+// RandomString generates a random string of n length
+func RandomString(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = characterRunes[rand.Intn(len(characterRunes))]
+	}
+	return string(b)
+}
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
 
 /*if profile.State == Present {
