@@ -176,8 +176,8 @@ func writeKubeConfig() error {
 }
 
 func enableGitOpsRepository() error {
-	home := os.Getenv("HOME")
-	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
+	// home := os.Getenv("HOME")
+	privateKeyPath := filepath.Join("root", ".ssh", "id_rsa")
 
 	clusterName := getDesiredClusterName()
 	region := getDesiredRegion()
@@ -192,7 +192,7 @@ func enableGitOpsRepository() error {
 		"--region="+region)
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true", fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true") // , fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -201,8 +201,8 @@ func enableGitOpsRepository() error {
 }
 
 func enableProfile(profile Profile) error {
-	home := os.Getenv("HOME")
-	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
+	// home := os.Getenv("HOME")
+	privateKeyPath := filepath.Join("root", ".ssh", "id_rsa")
 
 	clusterName := getDesiredClusterName()
 	region := getDesiredRegion()
@@ -218,7 +218,7 @@ func enableProfile(profile Profile) error {
 		string(profile))
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true", fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true") // , fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -339,7 +339,7 @@ func main() {
 }
 
 func generateKeyAndAllowDeployKey() error {
-	home := os.Getenv("HOME")
+	home := "/root" // os.Getenv("HOME")
 	err := os.MkdirAll(filepath.Join(home, ".ssh"), 0755)
 	if err != nil {
 		return err
