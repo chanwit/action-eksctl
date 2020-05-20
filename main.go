@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -327,7 +328,8 @@ func main() {
 }
 
 func generateKeyAndAllowDeployKey() error {
-	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-N", "''", "-f", "~/.ssh/id_rsa")
+	home := os.Getenv("HOME")
+	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-N", "''", "-f", filepath.Join(home, ".ssh/id_rsa"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
@@ -335,7 +337,7 @@ func generateKeyAndAllowDeployKey() error {
 		return err
 	}
 
-	key, err := ioutil.ReadFile("~/.ssh/id_rsa.pub")
+	key, err := ioutil.ReadFile(filepath.Join(home, ".ssh/id_rsa.pub"))
 	if err != nil {
 		return err
 	}
