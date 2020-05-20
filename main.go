@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -199,64 +200,6 @@ func enableProfile(profile Profile) error {
 	return cmd.Run()
 }
 
-func main() {
-
-	clusterDesiredState := getClusterDesiredState()
-	clusterState := getClusterState()
-	fmt.Printf("Cluster State: %q => Cluster Desired State: %q ...\n", clusterState, clusterDesiredState)
-
-	switch clusterState {
-	case Absent:
-		if clusterDesiredState == Present {
-			fmt.Println("Creating Cluster ...")
-			createCluster()
-		} else if clusterDesiredState == Absent {
-			// nothing to do
-			fmt.Println("Do nothing.")
-		}
-
-	case Present:
-		if clusterDesiredState == Absent {
-			fmt.Println("Deleting Cluster ...")
-			for {
-				deleteCluster()
-				if getClusterState() == Absent {
-					break
-				}
-				fmt.Println("Waiting for 30s")
-				time.Sleep(30 * time.Second)
-				fmt.Println("Cluster still here. Keep deleting ...")
-			}
-		} else if clusterDesiredState == Present {
-			// update
-			fmt.Println("NYI: Should update cluster")
-
-			fmt.Println("Writing KubeConfig ...")
-			writeKubeConfig()
-		}
-	}
-
-	// if cluster is present
-	// we enable gitops
-	if getClusterState() == Present {
-		enableGitOpsRepository()
-		key := getDeployKeyFromFlux()
-		addDeployKey(key)
-	}
-
-	// if cluster is present
-	// we applying profiles
-	if getClusterState() == Present {
-		profiles := readDesiredProfiles()
-		for _, profile := range profiles {
-			enableProfile(profile)
-		}
-	}
-
-	fmt.Println("Verifying Cluster State ...")
-	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", getClusterState(), getClusterDesiredState())
-}
-
 func getDeployKeyFromFlux() string {
 	key := &bytes.Buffer{}
 	if err := pipe.Run(pipe.Line(
@@ -300,6 +243,72 @@ func addDeployKey(key string) error {
 	}
 
 	return nil
+}
+
+func main() {
+
+	clusterDesiredState := getClusterDesiredState()
+	clusterState := getClusterState()
+	fmt.Printf("Cluster State: %q => Cluster Desired State: %q ...\n", clusterState, clusterDesiredState)
+
+	switch clusterState {
+	case Absent:
+		if clusterDesiredState == Present {
+			fmt.Println("Creating Cluster ...")
+			createCluster()
+		} else if clusterDesiredState == Absent {
+			// nothing to do
+			fmt.Println("Do nothing.")
+		}
+
+	case Present:
+		if clusterDesiredState == Absent {
+			fmt.Println("Deleting Cluster ...")
+			for {
+				deleteCluster()
+				if getClusterState() == Absent {
+					break
+				}
+				fmt.Println("Waiting for 30s")
+				time.Sleep(30 * time.Second)
+				fmt.Println("Cluster still here. Keep deleting ...")
+			}
+		} else if clusterDesiredState == Present {
+			// update
+			fmt.Println("NYI: Should update cluster")
+
+			fmt.Println("Writing KubeConfig ...")
+			writeKubeConfig()
+		}
+	}
+
+	// if cluster is present
+	// we enable gitops
+	if getClusterState() == Present {
+		fmt.Println("Enabling GitOps repository ...")
+		enableGitOpsRepository()
+
+		fmt.Println("Getting deploy key from Flux ...")
+		key := getDeployKeyFromFlux()
+
+		fmt.Println("Adding deploy key to the repo ...")
+		err := addDeployKey(key)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// if cluster is present
+	// we applying profiles
+	if getClusterState() == Present {
+		profiles := readDesiredProfiles()
+		for _, profile := range profiles {
+			enableProfile(profile)
+		}
+	}
+
+	fmt.Println("Verifying Cluster State ...")
+	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", getClusterState(), getClusterDesiredState())
 }
 
 /*if profile.State == Present {
