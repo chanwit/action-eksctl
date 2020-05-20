@@ -192,7 +192,7 @@ func enableGitOpsRepository() error {
 		"--region="+region)
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true")
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true", fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -218,7 +218,7 @@ func enableProfile(profile Profile) error {
 		string(profile))
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true")
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true", fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
