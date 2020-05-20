@@ -8,19 +8,14 @@ inputs:
   awsSecretAccessKey:
     description: 'awsSecretAccessKey'
     required: true
-  region:
-    description: 'AWS default region'
-    required: false
-    default: 'us-west-1'
   githubToken:
     description: 'Github Token'
     required: true
 outputs: {}
 runs:
   using: 'docker'
-  image: docker://chanwit/action-eksctl:v3
+  image: docker://chanwit/action-eksctl:v4
   env:
     AWS_ACCESS_KEY_ID: ${{ inputs.awsAccessKeyId }}
     AWS_SECRET_ACCESS_KEY: ${{ inputs.awsSecretAccessKey }}
-    AWS_DEFAULT_REGION: ${{ inputs.region }}
     GH_TOKEN: ${{ inputs.githubToken }}
