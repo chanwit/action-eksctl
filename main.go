@@ -309,6 +309,7 @@ func main() {
 	if getClusterState() == Present {
 		fmt.Println("Generating Key ...")
 		generateKeyAndAllowDeployKey()
+		time.Sleep(5 * time.Second)
 		fmt.Println("Enabling GitOps repository ...")
 		enableGitOpsRepository()
 
