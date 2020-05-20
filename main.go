@@ -184,6 +184,7 @@ func enableGitOpsRepository() error {
 	gitopsRepo := "git@github.com:" + os.Getenv("GITHUB_REPOSITORY")
 
 	cmd := exec.Command("eksctl", "enable", "repo",
+		"--verbose=4",
 		"--git-url="+gitopsRepo,
 		"--git-email=flux@noreply.gitops",
 		"--git-private-ssh-key-path="+privateKeyPath,
@@ -208,6 +209,7 @@ func enableProfile(profile Profile) error {
 	gitopsRepo := "git@github.com:" + os.Getenv("GITHUB_REPOSITORY")
 
 	cmd := exec.Command("eksctl", "enable", "profile",
+		"--verbose=4",
 		"--git-url="+gitopsRepo,
 		"--git-email=flux@noreply.gitops",
 		"--git-private-ssh-key-path="+privateKeyPath,
