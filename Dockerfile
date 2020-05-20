@@ -27,6 +27,8 @@ RUN chmod +x /usr/local/bin/kubectl
 RUN curl -s --location "https://github.com/fluxcd/flux/releases/download/1.19.0/fluxctl_linux_amd64" > /usr/local/bin/fluxctl \
     && chmod +x /usr/local/bin/fluxctl
 
+RUN apk add --update --no-cache git
+
 COPY provisioner /usr/local/bin/provisioner
 
 COPY entrypoint.sh /entrypoint.sh
