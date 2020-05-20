@@ -176,8 +176,8 @@ func writeKubeConfig() error {
 }
 
 func enableGitOpsRepository() error {
-	// home := os.Getenv("HOME")
-	privateKeyPath := filepath.Join("root", ".ssh", "id_rsa")
+	home := "/root" // os.Getenv("HOME")
+	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
 
 	clusterName := getDesiredClusterName()
 	region := getDesiredRegion()
@@ -201,8 +201,8 @@ func enableGitOpsRepository() error {
 }
 
 func enableProfile(profile Profile) error {
-	// home := os.Getenv("HOME")
-	privateKeyPath := filepath.Join("root", ".ssh", "id_rsa")
+	home := "/root" // os.Getenv("HOME")
+	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
 
 	clusterName := getDesiredClusterName()
 	region := getDesiredRegion()
