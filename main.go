@@ -353,6 +353,13 @@ func generateKeyAndAllowDeployKey() error {
 		return err
 	}
 
+	if err := pipe.Run(pipe.Line(
+		pipe.Exec("ssh-keyscan", "-t", "rsa", "github.com"),
+		pipe.AppendFile(filepath.Join(home,".ssh", "known_hosts"), 0600),
+	)); err != nil {
+		return err
+	}
+
 	key, err := ioutil.ReadFile(filepath.Join(home, ".ssh", "id_rsa.pub"))
 	if err != nil {
 		return err
