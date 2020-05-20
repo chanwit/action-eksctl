@@ -329,15 +329,20 @@ func main() {
 
 func generateKeyAndAllowDeployKey() error {
 	home := os.Getenv("HOME")
-	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-N", "''", "-f", filepath.Join(home, ".ssh/id_rsa"))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
+	err := os.MkdirAll(filepath.Join(home, ".ssh"), 0755)
 	if err != nil {
 		return err
 	}
 
-	key, err := ioutil.ReadFile(filepath.Join(home, ".ssh/id_rsa.pub"))
+	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-N", "''", "-f", filepath.Join(home, ".ssh", "id_rsa"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	key, err := ioutil.ReadFile(filepath.Join(home, ".ssh", "id_rsa.pub"))
 	if err != nil {
 		return err
 	}
