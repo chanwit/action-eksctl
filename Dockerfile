@@ -24,6 +24,9 @@ RUN pip3 install awscli --upgrade
 ADD https://storage.googleapis.com/kubernetes-release/release/v1.15.8/bin/linux/amd64/kubectl /usr/local/bin/kubectl
 RUN chmod +x /usr/local/bin/kubectl
 
+RUN curl -s --location "https://github.com/fluxcd/flux/releases/download/1.19.0/fluxctl_linux_amd64" > /usr/local/bin/fluxctl \
+    && chmod +x /usr/local/bin/fluxctl
+
 COPY provisioner /usr/local/bin/provisioner
 
 COPY entrypoint.sh /entrypoint.sh
