@@ -2,22 +2,56 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/google/go-github/v31/github"
+	"golang.org/x/oauth2"
 	"gopkg.in/pipe.v2"
+	"gopkg.in/yaml.v2"
 )
 
 type State string
 
 const (
-	Unknown = State("UNKNOWN")
-	Present = State("PRESENT")
-	Absent  = State("ABSENT")
+	Unknown = State("unknown")
+	Present = State("present")
+	Absent  = State("absent")
 )
+
+type Profile string
+
+/*
+type Profile struct {
+	Name string `json:"name,omitempty"`
+	State State `json:"state,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+*/
+
+func readDesiredProfiles() []Profile {
+	profiles := &bytes.Buffer{}
+	if err := pipe.Run(pipe.Line(
+		pipe.ReadFile("cluster.yaml"),
+		pipe.Exec("yq", "read", "-", "spec.profiles"),
+		pipe.Tee(profiles),
+	)); err != nil {
+		return nil
+	}
+
+	result := make([]Profile, 0)
+	err := yaml.Unmarshal(profiles.Bytes(), &result)
+	if err != nil {
+		return nil
+	}
+
+	return result
+}
 
 func getClusterDesiredState() State {
 	state := &bytes.Buffer{}
@@ -39,17 +73,33 @@ func getClusterDesiredState() State {
 	return Unknown
 }
 
-func getDesiredClusterName() string {
-
-	clusterName := &bytes.Buffer{}
+func getDesiredField(query string) string {
+	value := &bytes.Buffer{}
 	if err := pipe.Run(pipe.Line(
-		pipe.Exec("yq", "read", "cluster.yaml", "spec.template.metadata.name"),
-		pipe.Tee(clusterName),
+		pipe.Exec("yq", "read", "cluster.yaml", query),
+		pipe.Tee(value),
 	)); err != nil {
 		return ""
 	}
 
-	return strings.TrimSpace(clusterName.String())
+	return strings.TrimSpace(value.String())
+}
+
+func getDesiredRegion() string {
+	return getDesiredField("spec.template.metadata.region")
+}
+
+func getDesiredClusterName() string {
+	return getDesiredField("spec.template.metadata.name")
+}
+
+func getDesiredTimeout() string {
+	timeout := getDesiredField("timeout")
+	if timeout == "" {
+		return "25m"
+	}
+
+	return timeout
 }
 
 func getClusterState() State {
@@ -89,7 +139,9 @@ func createCluster() error {
 		return err
 	}
 
-	cmd := exec.Command("eksctl", "create", "cluster", "-f", "-")
+	timeout := getDesiredTimeout()
+
+	cmd := exec.Command("eksctl", "create", "--timeout", timeout, "cluster", "-f", "-")
 	cmd.Stdin = strings.NewReader(clusterConfig.String())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -107,6 +159,41 @@ func deleteCluster() error {
 func writeKubeConfig() error {
 	name := getDesiredClusterName()
 	cmd := exec.Command("eksctl", "utils", "write-kubeconfig", "--cluster", name)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func enableGitOpsRepository() error {
+	clusterName := getDesiredClusterName()
+	region := getDesiredRegion()
+	gitopsRepo := "git@github.com:" + os.Getenv("GITHUB_REPOSITORY")
+
+	cmd := exec.Command("eksctl", "enable", "repo",
+		"--git-url="+gitopsRepo,
+		"--git-email=flux@noreply.gitops",
+		"--cluster="+clusterName,
+		"--region="+region)
+
+	cmd.Env = []string{"EKSCTL_EXPERIMENTAL=true"}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func enableProfile(profile Profile) error {
+	clusterName := getDesiredClusterName()
+	region := getDesiredRegion()
+	gitopsRepo := "git@github.com:" + os.Getenv("GITHUB_REPOSITORY")
+
+	cmd := exec.Command("eksctl", "enable", "profile",
+		"--git-url="+gitopsRepo,
+		"--git-email=flux@noreply.gitops",
+		"--cluster="+clusterName,
+		"--region="+region,
+		string(profile))
+
+	cmd.Env = []string{"EKSCTL_EXPERIMENTAL=true"}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -149,6 +236,75 @@ func main() {
 		}
 	}
 
+	// if cluster is present
+	// we enable gitops
+	if getClusterState() == Present {
+		enableGitOpsRepository()
+		key := getDeployKeyFromFlux()
+		addDeployKey(key)
+	}
+
+	// if cluster is present
+	// we applying profiles
+	if getClusterState() == Present {
+		profiles := readDesiredProfiles()
+		for _, profile := range profiles {
+			enableProfile(profile)
+		}
+	}
+
 	fmt.Println("Verifying Cluster State ...")
 	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", getClusterState(), getClusterDesiredState())
 }
+
+func getDeployKeyFromFlux() string {
+	key := &bytes.Buffer{}
+	if err := pipe.Run(pipe.Line(
+		pipe.Exec("fluxctl", "--k8s-fwd-ns=flux", "identity"),
+		pipe.Tee(key),
+	)); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(key.String())
+}
+
+func addDeployKey(key string) error {
+	token := os.Getenv("GH_TOKEN")
+	if token == "" {
+		return errors.New("expected GH_TOKEN")
+	}
+	githubRepository := os.Getenv("GITHUB_REPOSITORY")
+	if githubRepository == "" {
+		return errors.New("expected GITHUB_REPOSITORY")
+	}
+
+	parts := strings.SplitN(githubRepository, "/", 2)
+	if len(parts) != 2 {
+		return errors.New("expected repo in the form of owner/repo")
+	}
+	owner := parts[0]
+	repo := parts[1]
+
+	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+	authClient := oauth2.NewClient(context.Background(), tokenSource)
+	client := github.NewClient(authClient)
+
+	_, _, err := client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
+		Key:      github.String(key),
+		Title:    github.String("flux"),
+		ReadOnly: github.Bool(false),
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+/*if profile.State == Present {
+	enableProfile(profile.URL)
+} else if profile.State == Absent {
+	// disableProfile(profile.URL)
+	fmt.Println("Not yet implemented")
+}*/
