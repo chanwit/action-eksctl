@@ -1,6 +1,6 @@
 FROM python:3.6-alpine
 
-LABEL "com.github.actions.name"="eksctl-cmd"
+LABEL "com.github.actions.name"="action-eksctl"
 LABEL "com.github.actions.description"="EKSctl"
 LABEL "com.github.actions.icon"="server"
 LABEL "com.github.actions.color"="blue"

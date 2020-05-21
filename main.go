@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -30,6 +29,8 @@ const (
 )
 
 type Profile string
+
+var home = "/root" // os.Getenv("HOME")
 
 /*
 type Profile struct {
@@ -175,8 +176,7 @@ func writeKubeConfig() error {
 	return cmd.Run()
 }
 
-func enableGitOpsRepository() error {
-	home := "/root" // os.Getenv("HOME")
+func enableGitOpsRepository(envs []string) error {
 	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
 
 	clusterName := getDesiredClusterName()
@@ -192,7 +192,8 @@ func enableGitOpsRepository() error {
 		"--region="+region)
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true") // , fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true")
+	cmd.Env = append(cmd.Env, envs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -200,8 +201,7 @@ func enableGitOpsRepository() error {
 	return cmd.Run()
 }
 
-func enableProfile(profile Profile) error {
-	home := "/root" // os.Getenv("HOME")
+func enableProfile(envs []string, profile Profile) error {
 	privateKeyPath := filepath.Join(home, ".ssh", "id_rsa")
 
 	clusterName := getDesiredClusterName()
@@ -218,10 +218,33 @@ func enableProfile(profile Profile) error {
 		string(profile))
 
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true") // , fmt.Sprintf("GIT_SSH_COMMAND='ssh -i %s'", privateKeyPath))
+	cmd.Env = append(cmd.Env, "EKSCTL_EXPERIMENTAL=true")
+	cmd.Env = append(cmd.Env, envs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func runSshAgent() []string {
+	output := &bytes.Buffer{}
+	if err := pipe.Run(pipe.Line(
+		pipe.Exec("ssh-agent", "-s"),
+		pipe.Filter(func(line []byte) bool {
+			s := string(line)
+			return strings.HasPrefix(s, "SSH_")
+		}),
+		pipe.Replace(func(line []byte) []byte {
+			s := string(line)
+			parts := strings.SplitN(s, ";", 2)
+			return []byte(parts[0] + "\n")
+		}),
+		pipe.Tee(output),
+	)); err != nil {
+		log.Fatal(err)
+	}
+
+	env := strings.Split(output.String(), "\n")
+	return env
 }
 
 func getDeployKeyFromFlux() string {
@@ -235,7 +258,55 @@ func getDeployKeyFromFlux() string {
 	return strings.TrimSpace(key.String())
 }
 
-func addDeployKey(name, key string) error {
+func addOrUpdateDeployKey(title, key string) (*github.Key, error) {
+	token := os.Getenv("GH_TOKEN")
+	if token == "" {
+		return nil, errors.New("expected GH_TOKEN")
+	}
+	githubRepository := os.Getenv("GITHUB_REPOSITORY")
+	if githubRepository == "" {
+		return nil, errors.New("expected GITHUB_REPOSITORY")
+	}
+
+	parts := strings.SplitN(githubRepository, "/", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("expected repo in the form of owner/repo")
+	}
+	owner := parts[0]
+	repo := parts[1]
+
+	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+	authClient := oauth2.NewClient(context.Background(), tokenSource)
+	client := github.NewClient(authClient)
+
+	keys, _, err := client.Repositories.ListKeys(context.Background(), owner, repo, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, k := range keys {
+		if *k.Title == title {
+			if _, err := client.Repositories.DeleteKey(context.Background(), owner, repo, *k.ID); err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+
+	k, _, err := client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
+		Key:      github.String(key),
+		Title:    github.String(title),
+		ReadOnly: github.Bool(false),
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return k, nil
+}
+
+func deleteDeployKey(key *github.Key) error {
 	token := os.Getenv("GH_TOKEN")
 	if token == "" {
 		return errors.New("expected GH_TOKEN")
@@ -256,17 +327,71 @@ func addDeployKey(name, key string) error {
 	authClient := oauth2.NewClient(context.Background(), tokenSource)
 	client := github.NewClient(authClient)
 
-	_, _, err := client.Repositories.CreateKey(context.Background(), owner, repo, &github.Key{
-		Key:      github.String(key),
-		Title:    github.String(name),
-		ReadOnly: github.Bool(false),
-	})
-
-	if err != nil {
+	if _, err := client.Repositories.DeleteKey(context.Background(), owner, repo, *key.ID); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func generateKeyAndAllowDeployKey(envs []string) (*github.Key, error) {
+	err := os.MkdirAll(filepath.Join(home, ".ssh"), 0755)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-b", "4096", "-N", "", "-f", filepath.Join(home, ".ssh", "id_rsa"))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	knownHosts := `
+github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==
+github.com ssh-dss AAAAB3NzaC1kc3MAAACBANGFW2P9xlGU3zWrymJgI/lKo//ZW2WfVtmbsUZJ5uyKArtlQOT2+WRhcg4979aFxgKdcsqAYW3/LS1T2km3jYW/vr4Uzn+dXWODVk5VlUiZ1HFOHf6s6ITcZvjvdbp6ZbpM+DuJT7Bw+h5Fx8Qt8I16oCZYmAPJRtu46o9C2zk1AAAAFQC4gdFGcSbp5Gr0Wd5Ay/jtcldMewAAAIATTgn4sY4Nem/FQE+XJlyUQptPWMem5fwOcWtSXiTKaaN0lkk2p2snz+EJvAGXGq9dTSWHyLJSM2W6ZdQDqWJ1k+cL8CARAqL+UMwF84CR0m3hj+wtVGD/J4G5kW2DBAf4/bqzP4469lT+dF2FRQ2L9JKXrCWcnhMtJUvua8dvnwAAAIB6C4nQfAA7x8oLta6tT+oCk2WQcydNsyugE8vLrHlogoWEicla6cWPk7oXSspbzUcfkjN3Qa6e74PhRkc7JdSdAlFzU3m7LMkXo1MHgkqNX8glxWNVqBSc0YRdbFdTkL0C6gtpklilhvuHQCdbgB3LBAikcRkDp+FCVkUgPC/7Rw==
+`
+	if err := ioutil.WriteFile(filepath.Join(home, ".ssh", "known_hosts"), []byte(knownHosts), 0600); err != nil {
+		return nil, err
+
+	}
+
+	if err := pipe.Run(pipe.Line(
+		pipe.Exec("ssh-keyscan", "-t", "rsa", "github.com"),
+		pipe.AppendFile(filepath.Join(home, ".ssh", "known_hosts"), 0600),
+	)); err != nil {
+		return nil, err
+
+	}
+
+	sshAdd := exec.Command("ssh-add", filepath.Join(home, ".ssh", "id_rsa"))
+	sshAdd.Env = append(os.Environ(), envs...)
+	sshAdd.Stdout = os.Stdout
+	sshAdd.Stderr = os.Stderr
+	err = sshAdd.Run()
+	if err != nil {
+		return nil, err
+
+	}
+
+	key, err := ioutil.ReadFile(filepath.Join(home, ".ssh", "id_rsa.pub"))
+	if err != nil {
+		return nil, err
+	}
+
+	str := RandomString(10)
+	return addOrUpdateDeployKey("push-key-"+str, string(key))
+}
+
+// RandomString generates a random string of n length
+func RandomString(n int) string {
+	var characterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = characterRunes[rand.Intn(len(characterRunes))]
+	}
+	return string(b)
 }
 
 func main() {
@@ -306,23 +431,31 @@ func main() {
 		}
 	}
 
+	envs := runSshAgent()
+
 	// if cluster is present
 	// we enable gitops
 	if getClusterState() == Present {
 		fmt.Println("Generating Key ...")
-		generateKeyAndAllowDeployKey()
+		deployKey, err := generateKeyAndAllowDeployKey(envs)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer deleteDeployKey(deployKey)
+
 		time.Sleep(5 * time.Second)
 		fmt.Println("Enabling GitOps repository ...")
-		enableGitOpsRepository()
+		enableGitOpsRepository(envs)
 
 		fmt.Println("Getting deploy key from Flux ...")
 		key := getDeployKeyFromFlux()
 
 		fmt.Println("Adding deploy key to the repo ...")
-		err := addDeployKey("flux", key)
+		_, err = addOrUpdateDeployKey("flux", key)
 		if err != nil {
 			log.Fatal(err)
 		}
+
 	}
 
 	// if cluster is present
@@ -330,7 +463,7 @@ func main() {
 	if getClusterState() == Present {
 		profiles := readDesiredProfiles()
 		for _, profile := range profiles {
-			enableProfile(profile)
+			enableProfile(envs, profile)
 		}
 	}
 
@@ -338,73 +471,6 @@ func main() {
 	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", getClusterState(), getClusterDesiredState())
 }
 
-func generateKeyAndAllowDeployKey() error {
-	home := "/root" // os.Getenv("HOME")
-	err := os.MkdirAll(filepath.Join(home, ".ssh"), 0755)
-	if err != nil {
-		return err
-	}
-
-	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-N", "''", "-f", filepath.Join(home, ".ssh", "id_rsa"))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	if err := pipe.Run(pipe.Line(
-		pipe.Exec("ssh-keyscan", "-t", "rsa", "github.com"),
-		pipe.AppendFile(filepath.Join(home,".ssh", "known_hosts"), 0600),
-	)); err != nil {
-		return err
-	}
-
-	key, err := ioutil.ReadFile(filepath.Join(home, ".ssh", "id_rsa.pub"))
-	if err != nil {
-		return err
-	}
-
-	str := RandomString(10)
-	return addDeployKey("push-key-"+str, string(key))
-}
-
-// NewSHA1Hash generates a new SHA1 hash based on
-// a random number of characters.
-func NewSHA1Hash(n ...int) string {
-	noRandomCharacters := 32
-
-	if len(n) > 0 {
-		noRandomCharacters = n[0]
-	}
-
-	randString := RandomString(noRandomCharacters)
-
-	hash := sha1.New()
-	hash.Write([]byte(randString))
-	bs := hash.Sum(nil)
-
-	return fmt.Sprintf("%x", bs)
-}
-
-var characterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-// RandomString generates a random string of n length
-func RandomString(n int) string {
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = characterRunes[rand.Intn(len(characterRunes))]
-	}
-	return string(b)
-}
-
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
-
-/*if profile.State == Present {
-	enableProfile(profile.URL)
-} else if profile.State == Absent {
-	// disableProfile(profile.URL)
-	fmt.Println("Not yet implemented")
-}*/
