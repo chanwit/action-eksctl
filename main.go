@@ -468,7 +468,15 @@ func main() {
 	}
 
 	fmt.Println("Verifying Cluster State ...")
-	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", getClusterState(), getClusterDesiredState())
+	clusterState = getClusterState()
+	clusterDesiredState = getClusterDesiredState()
+	fmt.Printf("Cluster State: %q => Cluster Desired State: %q\n", clusterState, clusterDesiredState)
+	if clusterState != clusterDesiredState {
+		os.Exit(1)
+	}
+
+	//
+	os.Exit(0)
 }
 
 func init() {
