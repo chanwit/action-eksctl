@@ -14,7 +14,7 @@ inputs:
 outputs: {}
 runs:
   using: 'docker'
-  image: docker://chanwit/action-eksctl:v13
+  image: docker://chanwit/action-eksctl:v14
   env:
     AWS_ACCESS_KEY_ID: ${{ inputs.awsAccessKeyId }}
     AWS_SECRET_ACCESS_KEY: ${{ inputs.awsSecretAccessKey }}
